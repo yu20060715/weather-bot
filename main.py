@@ -3,78 +3,85 @@ import requests
 import random
 
 def get_weather():
+    # 讀取環境變數
     cwa_key = os.getenv('CWA_TOKEN')
     line_key = os.getenv('LINE_TOKEN')
 
-    # 使用花蓮縣鄉鎮預報 API (不帶過濾參數，進程式再篩選最穩)
+    # API 網址 (花蓮縣鄉鎮預報)
     url = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-071?Authorization={cwa_key}"
     
     try:
         res = requests.get(url).json()
         
-        # 1. 精準鎖定瑞穗鄉資料 (解決 locations/location 報錯)
-        locs_container = res.get('records', {}).get('locations', [{}])[0]
-        all_locations = locs_container.get('location', [])
-        target = next((loc for loc in all_locations if loc['locationName'] == '瑞穗鄉'), None)
+        # --- 原理展示：如何從洋蔥裡挖出瑞穗鄉 ---
+        # 我們用遞迴或遍歷的方式找尋「瑞穗鄉」
+        target_data = None
+        
+        # 氣象署結構通常是 records -> locations[0] -> location (一個清單)
+        locations_container = res.get('records', {}).get('locations', [{}])[0]
+        location_list = locations_container.get('location', [])
 
-        if not target:
-            print("❌ 找不到瑞穗鄉，請檢查 API 資料內容")
+        for loc in location_list:
+            if loc.get('locationName') == '瑞穗鄉':
+                target_data = loc
+                break
+        
+        if not target_data:
+            print("❌ 慘了！在花蓮縣的資料裡竟然翻不到『瑞穗鄉』。")
+            print(f"目前抓到的地名有：{[l.get('locationName') for l in location_list[:5]]}...")
             return
 
-        # 2. 提取天氣元素
-        elements = {e['elementName']: e['time'] for e in target['weatherElement']}
+        # --- 抓取早中晚時段 (Wx=天氣, T=氣溫, PoP12h=降雨) ---
+        elements = {e['elementName']: e['time'] for e in target_data['weatherElement']}
         
-        # 3. 準備早、中、晚三個時段 (取未來前三個區間)
-        msg_parts = [f"🍊 【花蓮瑞穗】今日天氣特報", "--------------------"]
+        msg_parts = ["🍊 【瑞穗鄉】今日早中晚天氣預報", "===================="]
         
-        # 用於判斷提醒語的變數
-        max_pop = 0
-        all_temps = []
-
-        # 氣象署鄉鎮預報通常 3 小時或 6 小時一跳，我們取前 3 個代表早中晚
+        # 抓取 3 個時段 (0, 1, 2 分別代表接下來的三個預報點)
         for i in range(3):
-            time_label = ["【時段一】", "【時段二】", "【時段三】"][i]
-            wx = elements['Wx'][i]['elementValue'][0]['value']
-            temp = elements['T'][i]['elementValue'][0]['value']
-            pop = elements['PoP12h'][i//2]['elementValue'][0]['value'] # 降雨通常是 12h 一跳
+            t_info = elements['T'][i]
+            wx_info = elements['Wx'][i]
+            # 降雨機率通常 12 小時一跳，所以 i=0, 1 用同一個，i=2 用下一個
+            pop_info = elements['PoP12h'][0 if i < 2 else 1]
             
-            all_temps.append(int(temp))
-            max_pop = max(max_pop, int(pop))
+            time_str = t_info['startTime'][11:16] # 只取小時分鐘
+            temp = t_info['elementValue'][0]['value']
+            wx = wx_info['elementValue'][0]['value']
+            pop = pop_info['elementValue'][0]['value']
             
-            msg_parts.append(f"{time_label}\n☁️ 天氣：{wx}\n🌡️ 氣溫：{temp}°C | ☔ 降雨：{pop}%")
-        
-        msg_parts.append("--------------------")
+            msg_parts.append(f"🕒 時段 {time_str}\n🌡️ {temp}°C | ☁️ {wx} | ☔ {pop}%")
 
-        # 4. 隨機趣味提醒 (隨機選擇詞語)
-        tips = []
-        # 下雨判斷
-        if max_pop >= 30:
-            tips.append(random.choice(["別怪我沒提醒，雨傘帶著保平安！☔", "今天跟雨水有緣，傘一定要帶喔！🌧️", "下雨機率高，不想變落湯雞就帶傘吧！🦆"]))
-        else:
-            tips.append(random.choice(["天氣穩定，可以不用帶傘，但要帶好心情！☀️", "沒什麼雨，盡情享受瑞穗的陽光吧！😎", "乾乾爽爽的一天，出門去走走吧！✨"]))
+        # --- 隨機趣味提醒 ---
+        msg_parts.append("====================")
         
-        # 溫度判斷
-        avg_t = sum(all_temps) / len(all_temps)
-        if avg_t < 18:
-            tips.append(random.choice(["瑞穗有點冷，厚衣服穿起來，別感冒了！🧥", "冷颼颼的，穿厚點才不會抖喔！🧤", "建議穿暖一點，來杯熱咖啡也不錯！☕"]))
-        elif avg_t > 28:
-            tips.append(random.choice(["今天熱力四射，記得多喝水防中暑！🥤", "氣溫偏高，防曬遮陽一定要做好！🕶️", "有點悶熱，盡量待在通風的地方喔！⛱️"]))
+        # 根據天氣狀況選詞
+        current_pop = int(elements['PoP12h'][0]['elementValue'][0]['value'])
+        current_temp = int(elements['T'][0]['elementValue'][0]['value'])
+        
+        reminders = []
+        if current_pop >= 30:
+            reminders.append(random.choice(["外面好像會濕濕的，記得帶傘喔！☔", "降雨機率高，傘是你的本體，別忘了！🌧️"]))
         else:
-            tips.append(random.choice(["溫度剛好，多喝水維持體力！🚰", "這種天氣穿件薄長袖最舒服了！🍃", "舒適宜人，記得適時補充水分喔！🥛"]))
+            reminders.append(random.choice(["天氣乾爽，適合去瑞穗牧場看牛！🐮", "陽光普照，心情也要美美的！☀️"]))
 
-        msg_parts.append("💡 暖心小語：\n" + "\n".join(tips))
+        if current_temp < 18:
+            reminders.append(random.choice(["瑞穗風大會冷，穿厚一點，別感冒了！🧣", "穿厚點穿厚點！資工系關心您的體溫！🧥"]))
+        elif current_temp > 28:
+            reminders.append(random.choice(["熱到快融化了，多喝水，別中暑！🥤", "這天氣適合吃冰，記得補充水分！🍦"]))
+        
+        msg_parts.append("💡 暖心小語：")
+        msg_parts.append("\n".join(reminders))
+
+        # --- 發送廣播 ---
         final_msg = "\n".join(msg_parts)
-
-        # 5. 發送廣播 (Broadcast)
         line_url = 'https://api.line.me/v2/bot/message/broadcast'
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {line_key}'}
         payload = {"messages": [{"type": "text", "text": final_msg}]}
         
         r = requests.post(line_url, headers=headers, json=payload)
-        print(f"✅ 發送成功！狀態碼: {r.status_code}")
+        print(f"✅ 完成！發送結果: {r.status_code}")
 
     except Exception as e:
-        print(f"💥 發生錯誤：{e}")
+        print(f"❌ 程式爆炸了，原因: {e}")
 
 if __name__ == "__main__":
     get_weather()
