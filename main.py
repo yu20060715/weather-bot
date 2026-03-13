@@ -5,7 +5,7 @@ def get_weather():
     cwa_key = os.getenv('CWA_TOKEN')
     line_key = os.getenv('LINE_TOKEN')
 
-    # 花蓮縣鄉鎮預報 API
+    # 花蓮縣鄉鎮預報 API (瑞穗鄉)
     url = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-071?Authorization={cwa_key}&locationName=瑞穗鄉"
     
     try:
@@ -13,43 +13,43 @@ def get_weather():
         location_data = res['records']['locations'][0]['location'][0]
         elements = location_data['weatherElement']
         
-        # 取得未來三個時段 (0-6h, 6-12h, 12-18h)
-        # 天氣現象 Wx
-        wx = elements[6]['time']
-        # 降雨機率 PoP12h (鄉鎮預報通常是12小時一段)
-        pop_list = elements[0]['time']
+        # 解析未來三個時段 (通常是 0-12h, 12-24h, 24-36h)
+        wx = elements[6]['time']      # 天氣現象
+        pop_list = elements[0]['time'] # 降雨機率
+        t_list = elements[1]['time']   # 平均氣溫
 
-        # 準備組合訊息
+        msg = "🍊 花蓮【瑞穗鄉】今日天氣報報\n-------------------"
+        umbrella_flag = False
+        
+        # 準備三個時段的標籤
         periods = ["今日白天", "今晚明晨", "明日白天"]
-        weather_msg = "🍊 花蓮【瑞穗鄉】詳細預報\n-------------------"
-        
-        should_bring_umbrella = False
-        
+
         for i in range(3):
-            time_range = periods[i]
             desc = wx[i]['elementValue'][0]['value']
-            pop = pop_list[0 if i < 1 else 1]['elementValue'][0]['value'] # 鄉鎮預報降雨是12h一段
+            pop = pop_list[i]['elementValue'][0]['value']
+            temp = t_list[i]['elementValue'][0]['value']
             
-            weather_msg += f"\n【{time_range}】\n☁️ 天氣：{desc}\n☔ 降雨：{pop}%"
+            msg += f"\n【{periods[i]}】\n🌡️ 溫度：{temp}°C\n☁️ 狀況：{desc}\n☔ 降雨：{pop}%"
             
-            if int(pop) > 30: # 只要任一時段降雨機率大於 30% 就提醒
-                should_bring_umbrella = True
+            if int(pop) >= 30: # 只要有一個時段降雨 >= 30% 就提醒帶傘
+                umbrella_flag = True
+            msg += "\n"
 
-        weather_msg += "\n-------------------"
-        if should_bring_umbrella:
-            weather_msg += "\n⚠️ 瑞穗的朋友注意：今日降雨機率高，出門記得帶傘喔！"
+        msg += "-------------------"
+        if umbrella_flag:
+            msg += "\n⚠️ 提醒：瑞穗今日有雨，出門記得帶傘喔！"
         else:
-            weather_msg += "\n☀️ 今日天氣不錯，祝你有個美好的一天！"
+            msg += "\n☀️ 今日天氣穩定，祝你有個愉快的一天！"
 
-        # 改用 broadcast (廣播)，不用 User ID
+        # 使用 broadcast 廣播給所有人/群組
         line_url = 'https://api.line.me/v2/bot/message/broadcast'
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {line_key}'}
-        payload = {"messages": [{"type": "text", "text": weather_msg}]}
+        payload = {"messages": [{"type": "text", "text": msg}]}
         
         requests.post(line_url, headers=headers, json=payload)
 
     except Exception as e:
-        print(f"解析失敗: {e}")
+        print(f"發生錯誤: {e}")
 
 if __name__ == "__main__":
     get_weather()
