@@ -1,0 +1,29 @@
+name: Daily Weather Bot
+
+on:
+  schedule:
+    # 這是 Cron 語法，設定每天台北時間 08:00 (UTC 00:00) 執行
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 讓你可以手動在 GitHub 網頁上按按鈕測試
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run script
+        env:
+          CWA_TOKEN: ${{ secrets.CWA_TOKEN }}
+          LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python main.py
