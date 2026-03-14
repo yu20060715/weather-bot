@@ -6,89 +6,83 @@ def get_weather():
     cwa_key = os.getenv('CWA_TOKEN')
     line_key = os.getenv('LINE_TOKEN')
 
-    # 使用花蓮縣 API，並指定瑞穗鄉
-    url = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-043?Authorization={cwa_key}&locationName=瑞穗鄉"
+    # 改用你發現的穩定網址：抓取花蓮全縣 (043)
+    url = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-043?Authorization={cwa_key}"
 
     try:
         res = requests.get(url).json()
         
-        # 定位到瑞穗鄉的 WeatherElement 列表
-        # 氣象署 043 代碼結構：records -> Locations[0] -> Location[0]
-        locations = res.get('records', {}).get('Locations', [{}])[0]
-        location = locations.get('Location', [{}])[0]
-        elements = location.get('WeatherElement', [])
+        # 1. 找到「瑞穗鄉」在那一包資料裡
+        locations = res.get('records', {}).get('Locations', [{}])[0].get('Location', [])
+        target_data = next((loc for loc in locations if loc.get('LocationName') == '瑞穗鄉'), None)
 
-        if not elements:
-            print("❌ 無法定位瑞穗鄉資料，請確認 API 授權碼。")
+        if not target_data:
+            print("❌ 在花蓮縣資料中找不到瑞穗鄉，請檢查 API 回傳內容")
             return
 
-        # --- 核心算法：萬用提取器 ---
-        def get_value_smart(target_names, time_idx):
-            """
-            target_names: 可能的標籤名列表 (例如 ['Temperature', 'T'])
-            time_idx: 時段索引
-            """
-            for e in elements:
-                # 1. 找到對應的元素 (如: 溫度)
-                if e.get('ElementName') in target_names:
-                    times = e.get('Time', [])
-                    if len(times) > time_idx:
-                        val_obj = times[time_idx].get('ElementValue', [{}])[0]
-                        # 2. 關鍵修正：遍歷字典，抓取第一個「純數值」的內容
-                        # 避開 'Measures' (單位) 標籤
-                        for k, v in val_obj.items():
-                            if k.lower() != 'measures':
-                                return str(v)
-            return "N/A"
+        # 2. 建立資料對照表
+        # 我們把 WeatherElement 轉成一個字典，方便後面直接用名字叫它
+        elements = {e['ElementName']: e['Time'] for e in target_data['WeatherElement']}
 
-        # --- 開始組合訊息 ---
-        msg_parts = ["🍊 【瑞穗鄉】今日早中晚預報", "===================="]
-        
-        # 準備判斷數據
+        # 3. 定義取值函數 (對應氣象署奇葩的標籤結構)
+        def get_val(element_name, i):
+            try:
+                # 氣象署邏輯：ElementValue 裡面的 Key 就叫 ElementName
+                return str(elements[element_name][i]['ElementValue'][0][element_name])
+            except:
+                return "無資料"
+
+        msg_parts = ["🍊 【瑞穗鄉】早中晚天氣預報", "===================="]
         temps = []
         max_pop = 0
 
-        # 抓取前三個時段
+        # 4. 抓取接下來的三個預報時段 (每 12 小時一跳)
+        # i=0 (今日白天/晚上), i=1 (下一個 12 小時), i=2 (再下一個)
         for i in range(3):
-            time_label = ["早上", "下午", "晚上"][i]
+            # 抓取時間並格式化
+            start_time = elements['Temperature'][i]['StartTime'][11:16]
             
-            # 這裡傳入你 txt 裡看到的標籤全名
-            wx = get_value_smart(['Weather', 'Wx'], i)
-            temp = get_value_smart(['Temperature', 'T'], i)
-            pop = get_value_smart(['ProbabilityOfPrecipitation', 'PoP12h'], i)
+            wx = get_val('Weather', i)
+            t = get_val('Temperature', i)
+            pop = get_val('ProbabilityOfPrecipitation', i)
 
-            # 記錄數值供提醒使用
-            if temp.isdigit(): temps.append(int(temp))
+            if t.isdigit(): temps.append(int(t))
             if pop.isdigit(): max_pop = max(max_pop, int(pop))
 
-            msg_parts.append(f"🕒 {time_label}\n☁️ 狀況：{wx}\n🌡️ 氣溫：{temp}°C | ☔ 降雨：{pop}%")
+            msg_parts.append(f"🕒 時段 {start_time}")
+            msg_parts.append(f"☁️ 天氣：{wx}")
+            msg_parts.append(f"🌡️ 溫度：{t}°C | ☔ 降雨：{pop}%")
             msg_parts.append("--------------------")
 
-        # --- 隨機趣味提醒 ---
+        # 5. 趣味隨機提醒
         msg_parts.append("💡 暖心小語：")
+        
+        # 降雨邏輯
         if max_pop >= 30:
-            msg_lines = ["☔ 出門帶把傘，別被瑞穗的雨突襲了！", "🌧️ 降雨機率高，傘是你的本體喔！"]
+            msg_parts.append(random.choice(["☔ 出門記得帶傘，別讓瑞穗的雨淋濕你的心情！", "🌧️ 降雨機率有點高，帶把傘保平安喔！"]))
         else:
-            msg_lines = ["☀️ 天氣穩定，適合去牧場看牛！", "😎 陽光正好，心情也要美美的！"]
-        msg_parts.append(random.choice(msg_lines))
+            msg_parts.append(random.choice(["☀️ 天氣不錯，適合去瑞穗牧場喝鮮奶！", "✨ 沒什麼雨，盡情享受花蓮的好空氣吧！"]))
 
+        # 溫度邏輯
         if temps and sum(temps)/len(temps) < 18:
-            msg_parts.append("🧣 瑞穗風大，記得多穿一件外套！")
+            msg_parts.append("🧣 氣溫偏低，提醒您穿厚點，別感冒了！")
+        elif temps and sum(temps)/len(temps) > 28:
+            msg_parts.append("🥤 天氣悶熱，記得多喝水，別中暑囉！")
         else:
-            msg_parts.append("🥤 記得多喝水，維持一天好體力！")
+            msg_parts.append("🌸 溫度很舒適，是個適合戶外活動的好日子！")
 
-        # --- 發送 ---
+        # 6. 發送
         final_msg = "\n".join(msg_parts)
         line_url = 'https://api.line.me/v2/bot/message/broadcast'
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {line_key}'}
         payload = {"messages": [{"type": "text", "text": final_msg}]}
         
         r = requests.post(line_url, headers=headers, json=payload)
-        print(f"✅ 發送狀態: {r.status_code}")
-        print("發送內容預覽：\n", final_msg)
+        print(f"✅ 完成！狀態碼: {r.status_code}")
+        print("預覽：\n", final_msg)
 
     except Exception as e:
-        print(f"💥 發生未知錯誤: {e}")
+        print(f"💥 解析失敗: {e}")
 
 if __name__ == "__main__":
     get_weather()
