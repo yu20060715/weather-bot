@@ -7,9 +7,11 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def get_weather():
+
     cwa_key = os.getenv('CWA_TOKEN')
     line_key = os.getenv('LINE_TOKEN')
-    
+    group_id = os.getenv('GROUP_ID')
+
     # 1. 抓取花蓮全縣資料 (F-D0047-043)
     url = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-D0047-043?Authorization={cwa_key}"
     
