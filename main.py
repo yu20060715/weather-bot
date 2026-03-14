@@ -46,57 +46,40 @@ def get_weather():
             return "\n 💡 提醒您: " + "\n        ".join(tips)
 
         # 5. 組裝訊息內容
-        from datetime import datetime
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        
-        # 建立一個暫存字典，用 StartTime 當 Key 來對齊所有資料
-        # 這樣就能保證「這一格的時間」配對到「這一格的天氣」
-        combined_data = {}
+        # 氣象署 API 預設：[0] 是當下時段，[1] 是下一時段
+        msg_parts = [f"🍊 【瑞穗鄉】最新天氣預報", "===================="]
 
-        # 1. 先抓溫度，順便過濾日期
-        for t_item in elements['平均溫度']:
-            st = t_item['StartTime']
-            if st.startswith(today_str):
-                combined_data[st] = {
-                    'temp': t_item['ElementValue'][0]['Temperature'],
-                    'time': st[11:16]
-                }
-
-        # 2. 根據 Key (時間) 把天氣和降雨塞進去
-        for wx_item in elements['天氣現象']:
-            st = wx_item['StartTime']
-            if st in combined_data:
-                combined_data[st]['wx'] = wx_item['ElementValue'][0]['Weather']
-
-        for pop_item in elements['12小時降雨機率']:
-            st = pop_item['StartTime']
-            if st in combined_data:
-                combined_data[st]['pop'] = pop_item['ElementValue'][0]['ProbabilityOfPrecipitation']
-
-        # 3. 開始排序並輸出 (按時間先後)
-        sorted_keys = sorted(combined_data.keys())
-        msg_parts = [f"🍊 【瑞穗鄉】({today_str.replace('-', '/')}) 精準預報", "===================="]
-
-        for i, k in enumerate(sorted_keys):
-            item = combined_data[k]
+        for i in range(2):
+            # 抓取該時段的原始時間 (e.g., "2026-03-14T18:00:00+08:00")
+            start_time_raw = elements['平均溫度'][i]['StartTime']
+            
+            # 切割出日期 (03/14) 與 時間 (18:00)
+            date_str = start_time_raw[5:10].replace('-', '/')
+            time_str = start_time_raw[11:16]
             
             # 判斷顯示名稱
-            if item['time'] == "06:00":
-                display_time = "06:00 - 18:00 (今日白天)"
+            if time_str == "06:00":
+                display_time = f"{date_str} 06:00-18:00 (白天)"
             else:
-                display_time = "18:00 - 06:00 (今日晚上)"
+                display_time = f"{date_str} 18:00-06:00 (晚上)"
 
-            msg_parts.append(f"🕒 時段：{display_time}")
-            msg_parts.append(f"☁️ 狀況：{item['wx']}")
-            msg_parts.append(f"🌡️ 氣溫：{item['temp']}°C")
-            msg_parts.append(f"☔ 降雨：{item['pop']}%")
-            msg_parts.append(get_tips(item['temp'], item['pop'], item['wx']))
+            # 直接抓對應的資料
+            t = elements['平均溫度'][i]['ElementValue'][0]['Temperature']
+            wx = elements['天氣現象'][i]['ElementValue'][0]['Weather']
+            pop = elements['12小時降雨機率'][i]['ElementValue'][0]['ProbabilityOfPrecipitation']
             
-            if i < len(sorted_keys) - 1:
+            msg_parts.append(f"🕒 時段：{display_time}")
+            msg_parts.append(f"☁️ 狀況：{wx}")
+            msg_parts.append(f"🌡️ 氣溫：{t}°C")
+            msg_parts.append(f"☔ 降雨：{pop}%")
+            msg_parts.append(get_tips(t, pop, wx))
+            
+            # 加分隔線
+            if i == 0:
                 msg_parts.append("-" * 20)
 
         final_msg = "\n".join(msg_parts)
-
+        
         # 6. LINE 推播 (從 broadcast 改成 push)
         # 網址要改成 push 結尾
         line_url = 'https://api.line.me/v2/bot/message/push'
