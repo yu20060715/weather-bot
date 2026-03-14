@@ -45,20 +45,28 @@ def get_weather():
             if not tips: tips.append("天氣很棒，保持心情愉快！✨")
             return "\n 💡 提醒您: " + "\n        ".join(tips)
 
-        # 5. 組裝訊息內容 (精準對齊版)
+        # 5. 組裝訊息內容 (嚴格過濾 06:00 與 18:00 版)
         combined = {}
-        # 先以「溫度」的時間為基準，抓取前兩筆時間點
-        for i in range(2):
-            st = elements['平均溫度'][i]['StartTime']
-            combined[st] = {
-                't': elements['平均溫度'][i]['ElementValue'][0]['Temperature']
-            }
+        target_count = 0
+        
+        # 遍歷平均溫度，只抓取時間是 06:00 或 18:00 的時段，抓滿 2 個就停
+        for t_item in elements['平均溫度']:
+            st = t_item['StartTime']
+            hour = st[11:16]
+            
+            # 嚴格判斷：只收 06:00 (白天) 跟 18:00 (晚上)
+            if hour in ["06:00", "18:00"]:
+                combined[st] = {
+                    't': t_item['ElementValue'][0]['Temperature']
+                }
+                target_count += 1
+                
+            if target_count == 2:
+                break
 
         # 根據剛剛抓到的時間點 st，去「降雨」和「天氣」找一模一樣時間的資料
         for st in combined.keys():
-            # 尋找天氣現象中時間吻合的那一筆
             wx_data = next((item for item in elements['天氣現象'] if item['StartTime'] == st), None)
-            # 尋找降雨機率中時間吻合的那一筆
             pop_data = next((item for item in elements['12小時降雨機率'] if item['StartTime'] == st), None)
             
             combined[st]['wx'] = wx_data['ElementValue'][0]['Weather'] if wx_data else "未知"
@@ -71,15 +79,19 @@ def get_weather():
         for i, st in enumerate(sorted_times):
             date_display = st[5:10].replace('-', '/')
             hour_display = st[11:16]
+            
+            # 絕對精準的標籤
             label = "白天" if hour_display == "06:00" else "晚上"
+            time_range = "06:00-18:00" if hour_display == "06:00" else "18:00-06:00"
             
             data = combined[st]
-            msg_parts.append(f"🕒 時段：{date_display} {hour_display} ({label})")
+            msg_parts.append(f"🕒 時段：{date_display} {time_range} ({label})")
             msg_parts.append(f"☁️ 狀況：{data['wx']}")
             msg_parts.append(f"🌡️ 氣溫：{data['t']}°C")
             msg_parts.append(f"☔ 降雨：{data['pop']}%")
             msg_parts.append(get_tips(data['t'], data['pop'], data['wx']))
-            if i == 0: msg_parts.append("-" * 20)
+            if i < len(sorted_times) - 1: # 最後一筆不加分隔線
+                msg_parts.append("-" * 20)
 
         final_msg = "\n".join(msg_parts)
 
