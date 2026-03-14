@@ -25,4 +25,5 @@ jobs:
         env:
           CWA_TOKEN: ${{ secrets.CWA_TOKEN }}
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
+          GROUP_ID: ${{ secrets.GROUP_ID }}
         run: python main.py
