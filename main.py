@@ -66,13 +66,25 @@ def get_weather():
 
         final_msg = "\n".join(msg_parts)
 
-        # 6. LINE 推播 (Broadcast)
-        line_url = 'https://api.line.me/v2/bot/message/broadcast'
-        headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {line_key}'}
-        payload = {"messages": [{"type": "text", "text": final_msg}]}
+        # 6. LINE 推播 (從 broadcast 改成 push)
+        # 網址要改成 push 結尾
+        line_url = 'https://api.line.me/v2/bot/message/push'
+        
+        headers = {
+            'Content-Type': 'application/json', 
+            'Authorization': f'Bearer {line_key}'
+        }
+        
+        # payload 要加入 "to": group_id，指定發給群組
+        payload = {
+            "to": group_id, 
+            "messages": [{"type": "text", "text": final_msg}]
+        }
         
         response = requests.post(line_url, headers=headers, json=payload)
-        print(f"✅ 發送狀態: {response.status_code}")
+        print(f"✅ 群組發送狀態: {response.status_code}")
+        if response.status_code != 200:
+            print(f"❌ 錯誤原因: {response.text}")
 
     except Exception as e:
         print(f"💥 運行出錯: {e}")
