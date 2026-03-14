@@ -45,41 +45,44 @@ def get_weather():
             if not tips: tips.append("天氣很棒，保持心情愉快！✨")
             return "\n 💡 提醒您: " + "\n        ".join(tips)
 
-        # 5. 組裝訊息內容
-        # 氣象署 API 預設：[0] 是當下時段，[1] 是下一時段
+        # 5. 組裝訊息內容 (精準對齊版)
+        combined = {}
+        # 先以「溫度」的時間為基準，抓取前兩筆時間點
+        for i in range(2):
+            st = elements['平均溫度'][i]['StartTime']
+            combined[st] = {
+                't': elements['平均溫度'][i]['ElementValue'][0]['Temperature']
+            }
+
+        # 根據剛剛抓到的時間點 st，去「降雨」和「天氣」找一模一樣時間的資料
+        for st in combined.keys():
+            # 尋找天氣現象中時間吻合的那一筆
+            wx_data = next((item for item in elements['天氣現象'] if item['StartTime'] == st), None)
+            # 尋找降雨機率中時間吻合的那一筆
+            pop_data = next((item for item in elements['12小時降雨機率'] if item['StartTime'] == st), None)
+            
+            combined[st]['wx'] = wx_data['ElementValue'][0]['Weather'] if wx_data else "未知"
+            combined[st]['pop'] = pop_data['ElementValue'][0]['ProbabilityOfPrecipitation'] if pop_data else "0"
+
+        # 排序並輸出
+        sorted_times = sorted(combined.keys())
         msg_parts = [f"🍊 【瑞穗鄉】最新天氣預報", "===================="]
 
-        for i in range(2):
-            # 抓取該時段的原始時間 (e.g., "2026-03-14T18:00:00+08:00")
-            start_time_raw = elements['平均溫度'][i]['StartTime']
+        for i, st in enumerate(sorted_times):
+            date_display = st[5:10].replace('-', '/')
+            hour_display = st[11:16]
+            label = "白天" if hour_display == "06:00" else "晚上"
             
-            # 切割出日期 (03/14) 與 時間 (18:00)
-            date_str = start_time_raw[5:10].replace('-', '/')
-            time_str = start_time_raw[11:16]
-            
-            # 判斷顯示名稱
-            if time_str == "06:00":
-                display_time = f"{date_str} 06:00-18:00 (白天)"
-            else:
-                display_time = f"{date_str} 18:00-06:00 (晚上)"
-
-            # 直接抓對應的資料
-            t = elements['平均溫度'][i]['ElementValue'][0]['Temperature']
-            wx = elements['天氣現象'][i]['ElementValue'][0]['Weather']
-            pop = elements['12小時降雨機率'][i]['ElementValue'][0]['ProbabilityOfPrecipitation']
-            
-            msg_parts.append(f"🕒 時段：{display_time}")
-            msg_parts.append(f"☁️ 狀況：{wx}")
-            msg_parts.append(f"🌡️ 氣溫：{t}°C")
-            msg_parts.append(f"☔ 降雨：{pop}%")
-            msg_parts.append(get_tips(t, pop, wx))
-            
-            # 加分隔線
-            if i == 0:
-                msg_parts.append("-" * 20)
+            data = combined[st]
+            msg_parts.append(f"🕒 時段：{date_display} {hour_display} ({label})")
+            msg_parts.append(f"☁️ 狀況：{data['wx']}")
+            msg_parts.append(f"🌡️ 氣溫：{data['t']}°C")
+            msg_parts.append(f"☔ 降雨：{data['pop']}%")
+            msg_parts.append(get_tips(data['t'], data['pop'], data['wx']))
+            if i == 0: msg_parts.append("-" * 20)
 
         final_msg = "\n".join(msg_parts)
-        
+
         # 6. LINE 推播 (從 broadcast 改成 push)
         # 網址要改成 push 結尾
         line_url = 'https://api.line.me/v2/bot/message/push'
