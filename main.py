@@ -42,7 +42,7 @@ def get_tips(temp, pop, weather):
     return f"\n 💡 提示：{a}\n 🧥 穿搭：{b}"
 
 def get_weather():
-    owm_key = "4d29745fd12dc920fb15a07c7331026f"
+    owm_key = os.getenv('OWM_TOKEN')
     line_key = os.getenv('LINE_TOKEN')
     group_id = os.getenv('GROUP_ID')
     lat, lon = 23.497, 121.376
