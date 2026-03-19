@@ -23,6 +23,7 @@ jobs:
 
       - name: Run script
         env:
+          OWM_TOKEN: ${{ secrets.OWM_TOKEN }} 
           CWA_TOKEN: ${{ secrets.CWA_TOKEN }}
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
           GROUP_ID: ${{ secrets.GROUP_ID }}
