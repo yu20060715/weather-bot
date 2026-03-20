@@ -9,7 +9,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 def get_tips(temp, pop, weather):
     t, p = float(temp), int(pop)
     
-    # --- 第一行：天氣與降雨 (每 10% 一級，五選一) ---
     if p >= 90:
         a = random.choice(["今日降雨極高，出門務必攜帶雨具。", "有大雨發生機率，請注意行車安全。", "雨勢強大，盡量待在室內確保安全。", "外出請備妥雨衣傘具，慎防淋濕。", "降雨機率極大，注意雷雨或強降雨。"])
     elif p >= 70:
@@ -23,7 +22,6 @@ def get_tips(temp, pop, weather):
     else:
         a = random.choice(["天氣乾爽，不需要攜帶雨具。", "今日無雨，適合戶外活動。", "降雨機率為零，天氣非常晴朗。", "陽光充足，不需擔心下雨。", "天氣穩定，出門散步很合適。"])
 
-    # --- 第二行：氣溫與穿搭 (每 2-3 度一級，五選一) ---
     if t < 13:
         b = random.choice(["氣溫極低，請務必穿著厚大衣保暖。", "寒流來襲，請多加衣物避免感冒。", "天氣寒冷，記得戴上圍巾與手套。", "低溫特報，請注意家中長輩保暖。", "穿上羽絨衣或厚重外套，預防凍傷。"])
     elif t < 16:
@@ -42,48 +40,98 @@ def get_tips(temp, pop, weather):
     return f"\n 💡 提示：{a}\n 🧥 穿搭：{b}"
 
 def get_weather():
-    owm_key = os.getenv('OWM_TOKEN')
     line_key = os.getenv('LINE_TOKEN')
     group_id = os.getenv('GROUP_ID')
-    lat, lon = 23.497, 121.376
+    cwa_key = os.getenv('CWA_TOKEN')
     
-    url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={owm_key}&units=metric&lang=zh_tw"
+    if not cwa_key:
+        print("CWA_TOKEN 未設定")
+        return
+    
+    url = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001?Authorization={cwa_key}"
     
     try:
-        res = requests.get(url, timeout=20).json()
-        if res.get("cod") != "200": return
-
-        target_slots = {"09:00:00": "早上 (08-12)", "15:00:00": "下午 (12-16)", "21:00:00": "傍晚 (16-20)"}
-        msg_parts = [f"🍊 【瑞穗鄉】時段天氣預報", "===================="]
-        found_count = 0
-
-        for item in res['list']:
-            dt_txt = item['dt_txt']
-            date_display = dt_txt[5:10].replace('-', '/')
-            time_part = dt_txt[11:19]
-
-            if time_part in target_slots and found_count < 3:
-                slot_name = target_slots[time_part]
-                temp = round(item['main']['temp'], 1)
-                wx = item['weather'][0]['description']
-                pop = int(item.get('pop', 0) * 100)
+        res = requests.get(url, timeout=20, verify=False).json()
+        if str(res.get('success')).lower() != 'true':
+            print("API 請求失敗")
+            return
+        
+        locations = res['records']['location']
+        
+        hualien = None
+        for loc in locations:
+            if loc.get('locationName') == '花蓮縣':
+                hualien = loc
+                break
+        
+        if not hualien:
+            print("找不到花蓮縣資料")
+            return
+        
+        weather_elements = hualien['weatherElement']
+        
+        wx_data = {}
+        pop_data = {}
+        mint_data = {}
+        maxt_data = {}
+        
+        for we in weather_elements:
+            element_name = we['elementName']
+            for time_slot in we['time']:
+                start_time = time_slot['startTime']
+                param = time_slot['parameter']
                 
-                msg_parts.append(f"🕒 {date_display} {slot_name}")
-                msg_parts.append(f"☁️ 天氣：{wx}")
-                msg_parts.append(f"🌡️ 氣溫：{temp}°C | ☔ 降雨：{pop}%")
-                msg_parts.append(get_tips(temp, pop, wx))
-                msg_parts.append("-" * 20)
-                found_count += 1
-
+                if element_name == 'Wx':
+                    wx_data[start_time] = param.get('parameterName', '')
+                elif element_name == 'PoP':
+                    pop_data[start_time] = int(param.get('parameterName', '0'))
+                elif element_name == 'MinT':
+                    mint_data[start_time] = param.get('parameterName', '')
+                elif element_name == 'MaxT':
+                    maxt_data[start_time] = param.get('parameterName', '')
+        
+        msg_parts = [f"🍊 【瑞穗鄉】時段天氣預報", "===================="]
+        
+        if len(wx_data) >= 3:
+            times = sorted(wx_data.keys())
+            
+            day1_day = times[1] if len(times) > 1 else times[0]
+            day1_night = times[2] if len(times) > 2 else times[0]
+            
+            day1_date = day1_day[5:10].replace('-', '/')
+            
+            msg_parts.append(f"🕒 {day1_date} 早上 (08-12)")
+            msg_parts.append(f"☁️ 天氣：{wx_data[day1_day]}")
+            avg_temp = (int(mint_data.get(day1_day, '20')) + int(maxt_data.get(day1_day, '25'))) / 2
+            pop = pop_data.get(day1_day, 0)
+            msg_parts.append(f"🌡️ 氣溫：{mint_data.get(day1_day, '--')}~{maxt_data.get(day1_day, '--')}°C | ☔ 降雨：{pop}%")
+            msg_parts.append(get_tips(avg_temp, pop, wx_data[day1_day]))
+            msg_parts.append("-" * 20)
+            
+            msg_parts.append(f"🕒 {day1_date} 下午 (12-16)")
+            msg_parts.append(f"☁️ 天氣：{wx_data[day1_day]}")
+            pop = pop_data.get(day1_day, 0)
+            msg_parts.append(f"🌡️ 氣溫：{maxt_data.get(day1_day, '--')}°C | ☔ 降雨：{pop}%")
+            msg_parts.append(get_tips(float(maxt_data.get(day1_day, '25')), pop, wx_data[day1_day]))
+            msg_parts.append("-" * 20)
+            
+            day1_night_date = day1_night[5:10].replace('-', '/')
+            msg_parts.append(f"🕒 {day1_night_date} 傍晚 (16-20)")
+            msg_parts.append(f"☁️ 天氣：{wx_data[day1_night]}")
+            avg_temp = (int(mint_data.get(day1_night, '18')) + int(maxt_data.get(day1_day, '23'))) / 2
+            pop = pop_data.get(day1_night, 0)
+            msg_parts.append(f"🌡️ 氣溫：{mint_data.get(day1_night, '--')}°C | ☔ 降雨：{pop}%")
+            msg_parts.append(get_tips(avg_temp, pop, wx_data[day1_night]))
+        
         final_msg = "\n".join(msg_parts).strip("- \n")
-
+        
         if line_key and group_id:
             headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {line_key}'}
             payload = {"to": group_id, "messages": [{"type": "text", "text": final_msg}]}
             requests.post('https://api.line.me/v2/bot/message/push', headers=headers, json=payload)
         else:
             print(final_msg)
-
+            
     except Exception as e:
         print(f"💥 錯誤: {e}")
 
